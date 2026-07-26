@@ -30,7 +30,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 強迫設定檔加入 cdylib 確保 Windows 下能順利生出動態連結庫 (.dll)
+      # 確保 Windows 下能順利生出動態連結庫 (.dll)
       - name: Force Dynamic Library (cdylib) Configuration
         shell: bash
         run: |
@@ -39,10 +39,14 @@ jobs:
             echo "Cargo.toml modified for Windows."
           fi
 
+      # 🔥 關鍵修正：針對 Windows 加入 RUSTFLAGS，強迫匯出所有符號，避免找不到指定程序
       - name: Run Cargo Build with Blake3 Optimizations
+        shell: bash
+        env:
+          RUSTFLAGS: ${{ matrix.os == 'windows-latest' && '-C link-args=/EXPORT:sqlite3_extension_init' || '' }}
         run: cargo build --release --features "loadable_extension blake3"
 
-      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫
+      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫，上傳編譯產物
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
