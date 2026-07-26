@@ -30,23 +30,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 🔥 核心修正 1：用最暴力的方式，不管它原本怎麼寫，直接複寫 Cargo.toml 
-      # 強迫宣告 [lib] 的 crate-type 必須包含 "cdylib"，這樣 Windows 就一定會生出 .dll
-      - name: Overwrite Cargo.toml Lib Configuration
-        shell: bash
+      # 🚀 核心修正 1：用跨平台的 Python 語法安全修改 Cargo.toml，徹底根治 101 毀損錯誤
+      - name: Safely Configure Cargo.toml for cdylib
+        shell: python
         run: |
-          echo -e '\n[lib]\nname = "sqlite_hashes"\ncrate-type = ["cdylib", "rlib"]' >> Cargo.toml
-          cat Cargo.toml # 輸出檢查，確保寫入成功
+          import os
+          with open("Cargo.toml", "r", encoding="utf-8") as f:
+              content = f.read()
+          
+          # 如果沒有包含 [lib]，就在尾端加上合法的 cdylib 設定
+          if "[lib]" not in content:
+              with open("Cargo.toml", "a", encoding="utf-8") as f:
+                  f.write('\n[lib]\nname = "sqlite_hashes"\ncrate-type = ["cdylib", "rlib"]\n')
+          else:
+              # 如果原本就有 [lib]，則強行取代成 cdylib 模式
+              content = content.replace('crate-type = ["rlib"]', 'crate-type = ["cdylib", "rlib"]')
+              content = content.replace('crate-type = ["staticlib"]', 'crate-type = ["cdylib", "rlib"]')
+              with open("Cargo.toml", "w", encoding="utf-8") as f:
+                  f.write(content)
+                  
+          print("--- Updated Cargo.toml ---")
+          print(open("Cargo.toml", "r", encoding="utf-8").read())
 
-      # 🔥 核心修正 2：在編譯前強制執行 cargo clean，把以前殘留的 rlib 快取全部洗掉
-      - name: Clean Previous Cache
-        run: cargo clean
-
-      # 使用官方標準的 loadable_extension 與 blake3 進行編譯
+      # 🚀 核心修正 2：針對 Windows 傳入專用的 MSVC 連結參數，防止進入點不見
       - name: Run Cargo Build with Blake3 Optimizations
-        run: cargo build --release --features "loadable_extension blake3"
+        shell: bash
+        env:
+          RUSTFLAGS: ${{ matrix.os == 'windows-latest' && '-C link-args=/EXPORT:sqlite3_extension_init' || '' }}
+        run: |
+          cargo clean
+          cargo build --release --features "loadable_extension blake3"
 
-      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫，上傳編譯產物（改用最安全的全域遞迴搜尋）
+      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫，上傳編譯產物
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
