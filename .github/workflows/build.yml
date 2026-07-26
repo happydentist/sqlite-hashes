@@ -24,47 +24,20 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # 【Linux 環境設定】
       - name: Install SQLite Dev Libraries (Linux Only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 🔥【關鍵修正：Windows 環境設定】
-      # 使用 Vcpkg 自動下載並安裝 Windows 專用的 SQLite3 開發庫與本機靜態庫
-      - name: Install SQLite3 via Vcpkg (Windows Only)
-        if: matrix.os == 'windows-latest'
-        run: |
-          vcpkg install sqlite3:x64-windows
-          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
-
-      # 🔥【關鍵修正：安全的跨平台 Cargo.toml 配置】
-      - name: Safely Configure Cargo.toml for cdylib
-        shell: python
-        run: |
-          with open("Cargo.toml", "r", encoding="utf-8") as f:
-              content = f.read()
-          
-          # 徹底移除原有的 [lib] 設定避免衝突，改用標準的 cdylib 全域宣告
-          if "[lib]" in content:
-              # 找到 [lib] 區塊並精準取代
-              content = content.replace('crate-type = ["rlib"]', 'crate-type = ["cdylib", "rlib"]')
-          else:
-              content += '\n[lib]\nname = "sqlite_hashes"\ncrate-type = ["cdylib", "rlib"]\n'
-              
-          with open("Cargo.toml", "w", encoding="utf-8") as f:
-              f.write(content)
-
-      # 🔥【關鍵修正：Windows 專用編譯指令】
-      - name: Run Cargo Build with Blake3 Optimizations
-        shell: bash
-        env:
-          # Windows 環境下必須明確指定連結微軟的 vcpkg 庫路徑，並強行導出 C 語言接口
-          RUSTFLAGS: ${{ matrix.os == 'windows-latest' && '-C link-args=/EXPORT:sqlite3_extension_init' || '' }}
-        run: |
-          cargo clean
-          cargo build --release --features "loadable_extension blake3"
+      # 🚀【唯一終極修正】：不改 Cargo.toml，不裝 Vcpkg。
+      # 透過 --config 參數在命令列強行將輸出指定為 cdylib，
+      # 並透過 "rusqlite/bundled" 旗標，命令 Rust 自動去抓 SQLite 官方的 C 原始碼內嵌編譯！
+      - name: Run Cargo Build with Bundled SQLite & Blake3
+        run: >
+          cargo build --release 
+          --features "loadable_extension blake3 rusqlite/bundled" 
+          --config 'lib.crate-type=["cdylib"]'
 
       # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫，上傳編譯產物
       - name: Upload Artifact
