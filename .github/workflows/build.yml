@@ -2,7 +2,7 @@ name: Build SQLite Hashes Extension
 
 on:
   workflow_dispatch: # 手動點擊觸發
-
+ 
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -16,37 +16,23 @@ jobs:
             platform: macos
           - os: windows-latest
             platform: windows
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install SQLite Dev Libraries (Linux Only)
-        if: matrix.os == 'ubuntu-latest'
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # 關鍵修正：直接修改 Cargo.toml 內容
+      - name: Hardcode Cargo.toml crate-type to cdylib
+        shell: python
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsqlite3-dev
-
-      # 🚀【唯一終極修正】：不改 Cargo.toml，不裝 Vcpkg。
-      # 透過 --config 參數在命令列強行將輸出指定為 cdylib，
-      # 並透過 "rusqlite/bundled" 旗標，命令 Rust 自動去抓 SQLite 官方的 C 原始碼內嵌編譯！
-      - name: Run Cargo Build with Bundled SQLite & Blake3
-        run: >
-          cargo build --release 
-          --features "loadable_extension blake3 rusqlite/bundled" 
-          --config 'lib.crate-type=["cdylib"]'
-
-      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫，上傳編譯產物
+          import re
+          with open("Cargo.toml", "r", encoding="utf-8") as f: text = f.read()
+          text = re.sub(r'crate-type\s*=\s*\[.*?\]', 'crate-type = ["cdylib"]', text)
+          with open("Cargo.toml", "w", encoding="utf-8") as f: f.write(text)
+      # 使用 cargo rustc 強制產出 cdylib
+      - name: Build with cdylib
+        run: cargo rustc --release --features "loadable_extension blake3 rusqlite/bundled" -- --crate-type=cdylib
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
-          path: |
-            target/release/**/sqlite_hashes.dll
-            target/release/**/libsqlite_hashes.so
-            target/release/**/libsqlite_hashes.dylib
-            target/release/**/*sqlite_hashes*
+          path: target/release/**/*sqlite_hashes*
           if-no-files-found: error
