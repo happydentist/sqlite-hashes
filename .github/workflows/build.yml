@@ -17,28 +17,41 @@ jobs:
             features: "loadable_extension,blake3"
           - os: windows-latest
             platform: windows
-            # Windows 環境必須加上 rusqlite/bundled 讓它現場編譯 C 庫
             features: "loadable_extension,blake3,rusqlite/bundled"
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       
-      # 1. 解決 Linux 環境依賴
+      # 1. Linux 環境依賴
       - name: Install SQLite Dev Libraries (Linux Only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 跨平台通用編譯
-      # 💡 核心修正：
-      #   a. 加上 `--lib` 參數，強制 Cargo 繞過 dev-dependencies（徹底消滅 cargo-husky 導致的 101 崩潰）
-      #   b. 移除命令列最後方的 `-- --crate-type` 覆寫，因為專案 Cargo.toml 本身就已經內建配置好了 cdylib 特性！
-      - name: Run Cargo Build
-        run: cargo build --release --lib --features "${{ matrix.features }}"
+      # 2. 🔥 Windows 專屬：強力覆寫 Cargo.toml 結構
+      # 既然作者用 Example 規避，我們就用 PowerShell 強制在結尾追加全局設定，
+      # 並將所有潛在阻礙動態庫輸出的代碼特徵強制導向 cdylib
+      - name: Patch Cargo.toml (Windows Only)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Write-Host "=== Patching Cargo.toml on Windows ==="
+          # 清除可能干擾的 target 區塊
+          (Get-Content Cargo.toml) | Where-Object { $_ -notmatch '\[target.*lib\]' } | Set-Content Cargo.toml
+          # 強制宣告全局 cdylib
+          Add-Content Cargo.toml "`n[lib]`ncrate-type = [\"cdylib\", \"rlib\"]"
+          Write-Host "=== Patched File Output ==="
+          Get-Content Cargo.toml -Tail 10
 
-      # 3. 防呆上傳機制
+      # 3. 跨平台通用編譯
+      # 💡 關鍵改變：移除 `--lib`，改用全目標編譯，確保不漏掉作者藏在 example 或其他角落的實際動態庫代碼
+      - name: Run Cargo Build
+        run: cargo build --release --all-targets --features "${{ matrix.features }}"
+
+      # 4. 終極防呆搜刮上傳機制
+      # 我們不僅搜刮根目錄，還加上了 `**/*.dll` 遞迴搜尋，就算它被藏在 target/release/examples/ 裡也能一網打盡！
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -47,6 +60,9 @@ jobs:
             target/release/*.dll
             target/release/*.so
             target/release/*.dylib
+            target/release/examples/*.dll
+            target/release/examples/*.so
+            target/release/examples/*.dylib
             target/release/libsqlite_hashes.*
             target/release/sqlite_hashes.*
           if-no-files-found: error
