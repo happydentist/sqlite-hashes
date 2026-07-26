@@ -30,26 +30,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 🔥 關鍵修正：強迫 Windows 將輸出型態指定為 cdylib，這樣才會產出 .dll
+      # 強迫設定檔加入 cdylib 確保 Windows 下能順利生出動態連結庫 (.dll)
       - name: Force Dynamic Library (cdylib) Configuration
         shell: bash
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            # 使用 sed 在 [lib] 下方插入 crate-type = ["cdylib"]
             sed -i '/\[lib\]/a crate-type = ["cdylib"]' Cargo.toml
-            echo "Cargo.toml has been modified for Windows DLL generation."
+            echo "Cargo.toml modified for Windows."
           fi
 
       - name: Run Cargo Build with Blake3 Optimizations
         run: cargo build --release --features "loadable_extension blake3"
 
-      # 上傳編譯產物
+      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
           path: |
-            target/release/*.so
-            target/release/*.dylib
-            target/release/*.dll
+            target/release/**/sqlite_hashes.dll
+            target/release/**/libsqlite_hashes.so
+            target/release/**/libsqlite_hashes.dylib
+            target/release/**/*sqlite_hashes*
           if-no-files-found: error
