@@ -6,15 +6,18 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false # 平台相互隔離，其餘平台即便失敗，Windows 也會繼續執行完畢
+      fail-fast: false 
       matrix:
         include:
           - os: ubuntu-latest
             platform: linux
+            artifact_name: libsqlite_hashes.so
           - os: macos-latest
             platform: macos
+            artifact_name: libsqlite_hashes.dylib
           - os: windows-latest
             platform: windows
+            artifact_name: sqlite_hashes.dll
             
     steps:
       - uses: actions/checkout@v4
@@ -27,34 +30,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 🔥【三大 OS 分流編譯核心】
-      # 我們不在根目錄瞎攪和，而是用官方推薦的 --crate-type 引數
-      # 同時在 Windows 上外掛 `rusqlite/bundled` 以防 C 語言庫缺失！
-      
-      - name: Compile on Linux
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo rustc --release --features "loadable_extension blake3" -- --crate-type=cdylib
-
-      - name: Compile on macOS
-        if: matrix.os == 'macos-latest'
-        run: cargo rustc --release --features "loadable_extension blake3" -- --crate-type=cdylib
+      # 2. 跨平台分流編譯
+      # 回歸標準的 cargo build，讓專案讀取自身的 Cargo.toml 設定
+      - name: Compile on Unix-like Systems
+        if: matrix.os != 'windows-latest'
+        run: cargo build --release --features "loadable_extension blake3"
 
       - name: Compile on Windows
         if: matrix.os == 'windows-latest'
-        run: cargo rustc --release --features "loadable_extension blake3 rusqlite/bundled" -- --crate-type=cdylib
+        run: cargo build --release --features "loadable_extension blake3 rusqlite/bundled"
 
-      # 3. 🔥【極限暴力搜尋上傳】
-      # 經過查證，Windows 在用 cdylib 編譯時會自動把產物命名為 `sqlite_hashes.dll`
-      # 為了防呆，我們直接搜刮整個 `target/release/` 內的所有動態連結庫檔案！
+      # 3. 精確上傳產物
+      # 標準編譯後，產物必然會以正確的下底線「_」命名，並乖乖出現在 target/release/ 根目錄下！
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
-          path: |
-            target/release/*.dll
-            target/release/*.so
-            target/release/*.dylib
-            target/release/deps/*.dll
-            target/release/deps/*.so
-            target/release/deps/*.dylib
+          path: target/release/${{ matrix.artifact_name }}
           if-no-files-found: error
