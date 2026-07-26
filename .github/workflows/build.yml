@@ -11,41 +11,39 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            features: loadable_extension,blake3
+            features: "loadable_extension blake3"
           - os: macos-latest
             platform: macos
-            features: loadable_extension,blake3
+            features: "loadable_extension blake3"
           - os: windows-latest
             platform: windows
-            # 用逗號分隔，這是 Cargo 官方支援最不易出錯的格式
-            features: loadable_extension,blake3,rusqlite/bundled
+            # Windows 環境必須加上 rusqlite/bundled 進行本地 C 庫混合編譯
+            features: "loadable_extension blake3 rusqlite/bundled"
             
+    defaults:
+      run:
+        # 🔥 最關鍵的核心：強制所有平台（包含 Windows）在編譯時統一使用 bash 核心
+        # 這樣就能徹底擺脫 Windows PowerShell 對於引號、多 Feature 與環境變數的解析地獄！
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       
       # 1. 解決 Linux 環境依賴
-      # 本地依賴在 Linux 是必備的，Windows 有 bundled 故不需要
       - name: Install SQLite Dev Libraries (Linux Only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 跨平台通用編譯
-      # 透過封裝內建的環境變數，完美繞過 Windows Shell 對於命令列引號的解析地獄！
+      # 2. 跨平台完全一致編譯
+      # 透過引進 --crate-type=cdylib 強制 Rust 拋棄 rlib，在 Windows 上也必定吐出動態庫！
       - name: Run Cargo Build
-        env:
-          CARGO_PROFILE_RELEASE_STRIP: "true" # 順便幫產物瘦身
-        run: cargo build --release --features "${{ matrix.features }}"
-
-      # 3. 列出產物檔案 (Debug 確保產物格式)
-      - name: List Release Files
         run: |
-          echo "=== Content of target/release/ ==="
-          ls -la target/release/ || dir target\release\
+          cargo rustc --release --features "${{ matrix.features }}" -- --crate-type=cdylib
 
-      # 4. 精確抓取上傳
+      # 3. 萬用字元防呆上傳機制
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
