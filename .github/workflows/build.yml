@@ -24,38 +24,43 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # 【Linux 環境設定】
       - name: Install SQLite Dev Libraries (Linux Only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 🚀 核心修正 1：用跨平台的 Python 語法安全修改 Cargo.toml，徹底根治 101 毀損錯誤
+      # 🔥【關鍵修正：Windows 環境設定】
+      # 使用 Vcpkg 自動下載並安裝 Windows 專用的 SQLite3 開發庫與本機靜態庫
+      - name: Install SQLite3 via Vcpkg (Windows Only)
+        if: matrix.os == 'windows-latest'
+        run: |
+          vcpkg install sqlite3:x64-windows
+          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+
+      # 🔥【關鍵修正：安全的跨平台 Cargo.toml 配置】
       - name: Safely Configure Cargo.toml for cdylib
         shell: python
         run: |
-          import os
           with open("Cargo.toml", "r", encoding="utf-8") as f:
               content = f.read()
           
-          # 如果沒有包含 [lib]，就在尾端加上合法的 cdylib 設定
-          if "[lib]" not in content:
-              with open("Cargo.toml", "a", encoding="utf-8") as f:
-                  f.write('\n[lib]\nname = "sqlite_hashes"\ncrate-type = ["cdylib", "rlib"]\n')
-          else:
-              # 如果原本就有 [lib]，則強行取代成 cdylib 模式
+          # 徹底移除原有的 [lib] 設定避免衝突，改用標準的 cdylib 全域宣告
+          if "[lib]" in content:
+              # 找到 [lib] 區塊並精準取代
               content = content.replace('crate-type = ["rlib"]', 'crate-type = ["cdylib", "rlib"]')
-              content = content.replace('crate-type = ["staticlib"]', 'crate-type = ["cdylib", "rlib"]')
-              with open("Cargo.toml", "w", encoding="utf-8") as f:
-                  f.write(content)
-                  
-          print("--- Updated Cargo.toml ---")
-          print(open("Cargo.toml", "r", encoding="utf-8").read())
+          else:
+              content += '\n[lib]\nname = "sqlite_hashes"\ncrate-type = ["cdylib", "rlib"]\n'
+              
+          with open("Cargo.toml", "w", encoding="utf-8") as f:
+              f.write(content)
 
-      # 🚀 核心修正 2：針對 Windows 傳入專用的 MSVC 連結參數，防止進入點不見
+      # 🔥【關鍵修正：Windows 專用編譯指令】
       - name: Run Cargo Build with Blake3 Optimizations
         shell: bash
         env:
+          # Windows 環境下必須明確指定連結微軟的 vcpkg 庫路徑，並強行導出 C 語言接口
           RUSTFLAGS: ${{ matrix.os == 'windows-latest' && '-C link-args=/EXPORT:sqlite3_extension_init' || '' }}
         run: |
           cargo clean
