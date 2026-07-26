@@ -6,41 +6,55 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
+      fail-fast: false # 平台相互隔離，其餘平台即便失敗，Windows 也會繼續執行完畢
       matrix:
         include:
           - os: ubuntu-latest
             platform: linux
-            output_name: libsqlite_hashes.so
           - os: macos-latest
             platform: macos
-            output_name: libsqlite_hashes.dylib
           - os: windows-latest
             platform: windows
-            output_name: sqlite_hashes.dll
-
+            
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
-      # 1. 既然標準編譯只給 rlib，那我們先用 cargo 幫我們把所有底層依賴套件（如 blake3、digest）下載並編譯好
-      - name: Fetch and Prepare Dependencies
-        run: cargo check --release --features "loadable_extension blake3"
-
-      # 2. 🔥【核心大絕招】：繞過 Cargo 的限制，直接用 rustc 將主程式 src/lib.rs 編譯成我們要的平台動態庫
-      - name: Force Compile to Dynamic Library
+      
+      # 1. 解決 Linux 環境依賴
+      - name: Install SQLite Dev Libraries (Linux Only)
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          rustc --crate-name sqlite_hashes src/lib.rs --crate-type=cdylib --release --cfg 'feature="loadable_extension"' --cfg 'feature="blake3"' -L target/release/deps -o ${{ matrix.output_name }}
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
 
-      # 3. 檢查檔案是否存在（Debug 用）
-      - name: Check output file
-        run: |
-          ls -la ${{ matrix.output_name }} || dir ${{ matrix.output_name }}
+      # 2. 🔥【三大 OS 分流編譯核心】
+      # 我們不在根目錄瞎攪和，而是用官方推薦的 --crate-type 引數
+      # 同時在 Windows 上外掛 `rusqlite/bundled` 以防 C 語言庫缺失！
+      
+      - name: Compile on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo rustc --release --features "loadable_extension blake3" -- --crate-type=cdylib
 
-      # 4. 檔案就在根目錄，百分之百不可能抓不到
+      - name: Compile on macOS
+        if: matrix.os == 'macos-latest'
+        run: cargo rustc --release --features "loadable_extension blake3" -- --crate-type=cdylib
+
+      - name: Compile on Windows
+        if: matrix.os == 'windows-latest'
+        run: cargo rustc --release --features "loadable_extension blake3 rusqlite/bundled" -- --crate-type=cdylib
+
+      # 3. 🔥【極限暴力搜尋上傳】
+      # 經過查證，Windows 在用 cdylib 編譯時會自動把產物命名為 `sqlite_hashes.dll`
+      # 為了防呆，我們直接搜刮整個 `target/release/` 內的所有動態連結庫檔案！
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
-          path: ${{ matrix.output_name }}
+          path: |
+            target/release/*.dll
+            target/release/*.so
+            target/release/*.dylib
+            target/release/deps/*.dll
+            target/release/deps/*.so
+            target/release/deps/*.dylib
           if-no-files-found: error
