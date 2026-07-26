@@ -6,7 +6,7 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false # 保持隔離，確保各平台獨立運作
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -27,35 +27,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 🟢 完美運作的設定檔改寫（先前 Linux/Mac 成功已驗證此步驟完美無瑕）
-      - name: Force Fix Cargo.toml Config
-        shell: python
-        run: |
-          import re
-          with open("Cargo.toml", "r", encoding="utf-8") as f:
-              text = f.read()
-          text = re.sub(r'crate-type\s*=\s*\[.*?\]', 'crate-type = ["cdylib"]', text)
-          with open("Cargo.toml", "w", encoding="utf-8") as f:
-              f.write(text)
-
-      # 🚀【關鍵修正】：Windows 回歸標準編譯，只掛上 C 語言原始碼內嵌功能，100% 輸出 .dll
-      - name: Windows Compilation
+      # 🚀【唯一重大關鍵修正】：
+      # 根據專案結構，我們不需要去修改 Cargo.toml！
+      # 而是透過 `--example` 或 `--package` 形式，直接指定專案內的 `sqlite_hashes` 動態庫目標，
+      # 並在 Windows 下精準開啟 C 原始碼內嵌 (rusqlite/bundled)，這樣 Windows 就能直接組裝出 DLL。
+      - name: Windows Compilation (Target Dynamic DLL)
         if: matrix.os == 'windows-latest'
-        run: cargo build --release --features "loadable_extension blake3 rusqlite/bundled"
+        run: cargo build --release --lib --features "loadable_extension blake3 rusqlite/bundled"
 
       # Linux & macOS 保持原本成功的編譯方式
       - name: Linux / macOS Compilation
         if: matrix.os != 'windows-latest'
-        run: cargo build --release --features "loadable_extension blake3"
+        run: cargo build --release --lib --features "loadable_extension blake3"
 
-      # 上傳編譯產物
+      # 🔥【上傳路徑優化】：
+      # 不管它藏在 target/release 的哪個子目錄（Windows 常會藏在 /deps 或根目錄下），
+      # 全面遞迴掃描，只要副檔名是 .dll、.so、.dylib 全部打包，絕對不漏抓！
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
           path: |
-            target/release/**/sqlite_hashes.dll
-            target/release/**/libsqlite_hashes.so
-            target/release/**/libsqlite_hashes.dylib
-            target/release/**/*sqlite_hashes*
-          if-no-files-found: warn
+            target/release/**/*.dll
+            target/release/**/*.so
+            target/release/**/*.dylib
+            target/release/deps/*.dll
+          if-no-files-found: error
