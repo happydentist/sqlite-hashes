@@ -1,0 +1,44 @@
+name: Build SQLite Hashes Extension
+
+on:
+  workflow_dispatch: # 讓您可以手動點擊按鈕來觸發編譯
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: libsqlite_hashes.so
+          - os: macos-latest
+            artifact_name: libsqlite_hashes.dylib
+          - os: windows-latest
+            artifact_name: sqlite_hashes.dll
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install SQLite Dev Libraries (Linux Only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
+      - name: Run Cargo Build with Blake3 Optimizations
+        run: cargo build --release --features "loadable_extension blake3"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-hashes-${{ matrix.os }}
+          path: |
+            target/release/libsqlite_hashes.so
+            target/release/libsqlite_hashes.dylib
+            target/release/sqlite_hashes.dll
+          if-no-files-found: ignore
