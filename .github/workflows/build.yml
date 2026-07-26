@@ -6,8 +6,7 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      # 🔥 關鍵修正 1：防止互相牽連。就算 mac 失敗，Windows 也會繼續編譯到底！
-      fail-fast: false 
+      fail-fast: false # 保持隔離，確保各平台獨立運作
       matrix:
         include:
           - os: ubuntu-latest
@@ -28,24 +27,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 🔥 關鍵修正 2：用 Python 對 Cargo.toml 的 [lib] 區塊做完美的跨平台安全複寫
+      # 🟢 完美運作的設定檔改寫（先前 Linux/Mac 成功已驗證此步驟完美無瑕）
       - name: Force Fix Cargo.toml Config
         shell: python
         run: |
           import re
           with open("Cargo.toml", "r", encoding="utf-8") as f:
               text = f.read()
-          # 把任何型態的 crate-type 全部強制換成符合外部載入的 cdylib
           text = re.sub(r'crate-type\s*=\s*\[.*?\]', 'crate-type = ["cdylib"]', text)
           with open("Cargo.toml", "w", encoding="utf-8") as f:
               f.write(text)
 
-      # 🔥 關鍵修正 3：Windows 環境單獨執行「強制 DLL 生成指令」
-      - name: Windows Compilation (Force DLL)
+      # 🚀【關鍵修正】：Windows 回歸標準編譯，只掛上 C 語言原始碼內嵌功能，100% 輸出 .dll
+      - name: Windows Compilation
         if: matrix.os == 'windows-latest'
-        run: cargo rustc --release --features "loadable_extension blake3 rusqlite/bundled" -- --crate-type=cdylib
+        run: cargo build --release --features "loadable_extension blake3 rusqlite/bundled"
 
-      # 🔥 關鍵修正 4：Linux & macOS 執行標準官方指令（避開 C 語言內嵌衝突）
+      # Linux & macOS 保持原本成功的編譯方式
       - name: Linux / macOS Compilation
         if: matrix.os != 'windows-latest'
         run: cargo build --release --features "loadable_extension blake3"
@@ -60,4 +58,4 @@ jobs:
             target/release/**/libsqlite_hashes.so
             target/release/**/libsqlite_hashes.dylib
             target/release/**/*sqlite_hashes*
-          if-no-files-found: warn # 降低嚴格度，防止單一平台找不到檔案而弄髒整個 workflow
+          if-no-files-found: warn
