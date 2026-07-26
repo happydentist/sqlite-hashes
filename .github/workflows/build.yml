@@ -27,24 +27,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 跨平台分流編譯
+      # 2. 跨平台分流編譯（移除了所有導致 Windows 報錯的環境變數黑魔法）
       - name: Compile on Unix-like Systems
         if: matrix.os != 'windows-latest'
         run: cargo build --release --features "loadable_extension blake3"
 
+      # Windows 專用分流，額外附帶 rusqlite/bundled 旗標
       - name: Compile on Windows
         if: matrix.os == 'windows-latest'
         run: cargo build --release --features "loadable_extension blake3 rusqlite/bundled"
 
-      # 3. 列出產物檔案 (Debug 專用，可在 Log 中直接看到實際產出的檔名)
+      # 3. 檢查並列出產物
       - name: List Release Files
         run: |
           echo "=== Content of target/release/ ==="
           ls -la target/release/ || dir target\release\
 
-      # 4. 保證防呆的上傳機制
-      # 我們利用多行 path，並搭配驚嘆號「!」來精確排除 deps 目錄。
-      # 這樣無論檔名是 sqlite_hashes 還是 sqlite-hashes，都能100%成功上傳！
+      # 4. 保證 100% 抓取上傳機制
+      # 根據 nyurik 專案的配置，編譯完的庫名稱必然會叫 sqlite_hashes
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -53,5 +53,6 @@ jobs:
             target/release/*.dll
             target/release/*.so
             target/release/*.dylib
-            !target/release/deps/**
+            target/release/libsqlite_hashes.*
+            target/release/sqlite_hashes.*
           if-no-files-found: error
