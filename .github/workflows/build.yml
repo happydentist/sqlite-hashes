@@ -30,13 +30,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 🚀 修正核心：不再手動改動 Cargo.toml 與 RUSTFLAGS。
-      # 使用官方提供的 "default_loadable_extension" 旗標，
-      # 這會自動讓 Windows、Linux、macOS 產出正確的動態連結庫與進入點！
-      - name: Run Cargo Build with Blake3 and Loadable Extension Flags
-        run: cargo build --release --features "default_loadable_extension blake3"
+      # 🔥 核心修正 1：用最暴力的方式，不管它原本怎麼寫，直接複寫 Cargo.toml 
+      # 強迫宣告 [lib] 的 crate-type 必須包含 "cdylib"，這樣 Windows 就一定會生出 .dll
+      - name: Overwrite Cargo.toml Lib Configuration
+        shell: bash
+        run: |
+          echo -e '\n[lib]\nname = "sqlite_hashes"\ncrate-type = ["cdylib", "rlib"]' >> Cargo.toml
+          cat Cargo.toml # 輸出檢查，確保寫入成功
 
-      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫，上傳編譯產物
+      # 🔥 核心修正 2：在編譯前強制執行 cargo clean，把以前殘留的 rlib 快取全部洗掉
+      - name: Clean Previous Cache
+        run: cargo clean
+
+      # 使用官方標準的 loadable_extension 與 blake3 進行編譯
+      - name: Run Cargo Build with Blake3 Optimizations
+        run: cargo build --release --features "loadable_extension blake3"
+
+      # 🔥 終極優化上傳：使用雙星號 (**) 進行全目錄遞迴搜尋，確保抓到任何延伸檔名的二進位庫，上傳編譯產物（改用最安全的全域遞迴搜尋）
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
