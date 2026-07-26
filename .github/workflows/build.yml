@@ -27,17 +27,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 跨平台獨立分流編譯（徹底拆開，絕不讓 Windows 執行到 Linux 的 Shell 指令）
+      # 2. Linux / macOS 編譯步驟
       - name: Compile on Linux / macOS
         if: matrix.os != 'windows-latest'
         run: cargo build --release --features "loadable_extension blake3"
 
-      # Windows 平台：使用專屬的 bundled 旗標，在無 sqlite3 環境下強制本地自動編譯
+      # 3. Windows 編譯步驟（修正引號轉義，確保 Windows 順利讀取多個 features）
+      # 使用 單引號 包裹 雙引號，防範 Windows 預設 Shell 解析字串時破壞特徵旗標
       - name: Compile on Windows
         if: matrix.os == 'windows-latest'
-        run: cargo build --release --features "loadable_extension blake3 rusqlite/bundled"
+        run: cargo build --release --features '"loadable_extension blake3 rusqlite/bundled"'
 
-      # 3. 防呆上傳機制（將 target/release/ 根目錄的所有動態連結庫上傳）
+      # 4. 防呆上傳機制
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
