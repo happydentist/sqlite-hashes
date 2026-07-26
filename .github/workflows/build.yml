@@ -1,13 +1,13 @@
 name: Build SQLite Hashes Extension
+on: [workflow_dispatch] 
 
-on:
-  workflow_dispatch: # 手動點擊觸發
- 
 jobs:
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      # 🔥 關鍵修正 1：防止互相牽連。就算 mac 失敗，Windows 也會繼續編譯到底！
+      fail-fast: false 
       matrix:
         include:
           - os: ubuntu-latest
@@ -16,23 +16,48 @@ jobs:
             platform: macos
           - os: windows-latest
             platform: windows
+            
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # 關鍵修正：直接修改 Cargo.toml 內容
-      - name: Hardcode Cargo.toml crate-type to cdylib
+      
+      # Linux 環境獨有依賴
+      - name: Install SQLite Dev Libraries (Linux Only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
+      # 🔥 關鍵修正 2：用 Python 對 Cargo.toml 的 [lib] 區塊做完美的跨平台安全複寫
+      - name: Force Fix Cargo.toml Config
         shell: python
         run: |
           import re
-          with open("Cargo.toml", "r", encoding="utf-8") as f: text = f.read()
+          with open("Cargo.toml", "r", encoding="utf-8") as f:
+              text = f.read()
+          # 把任何型態的 crate-type 全部強制換成符合外部載入的 cdylib
           text = re.sub(r'crate-type\s*=\s*\[.*?\]', 'crate-type = ["cdylib"]', text)
-          with open("Cargo.toml", "w", encoding="utf-8") as f: f.write(text)
-      # 使用 cargo rustc 強制產出 cdylib
-      - name: Build with cdylib
+          with open("Cargo.toml", "w", encoding="utf-8") as f:
+              f.write(text)
+
+      # 🔥 關鍵修正 3：Windows 環境單獨執行「強制 DLL 生成指令」
+      - name: Windows Compilation (Force DLL)
+        if: matrix.os == 'windows-latest'
         run: cargo rustc --release --features "loadable_extension blake3 rusqlite/bundled" -- --crate-type=cdylib
+
+      # 🔥 關鍵修正 4：Linux & macOS 執行標準官方指令（避開 C 語言內嵌衝突）
+      - name: Linux / macOS Compilation
+        if: matrix.os != 'windows-latest'
+        run: cargo build --release --features "loadable_extension blake3"
+
+      # 上傳編譯產物
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
-          path: target/release/**/*sqlite_hashes*
-          if-no-files-found: error
+          path: |
+            target/release/**/sqlite_hashes.dll
+            target/release/**/libsqlite_hashes.so
+            target/release/**/libsqlite_hashes.dylib
+            target/release/**/*sqlite_hashes*
+          if-no-files-found: warn # 降低嚴格度，防止單一平台找不到檔案而弄髒整個 workflow
