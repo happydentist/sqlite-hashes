@@ -11,11 +11,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: libsqlite_hashes.so
+            platform: linux
           - os: macos-latest
-            artifact_name: libsqlite_hashes.dylib
+            platform: macos
           - os: windows-latest
-            artifact_name: sqlite_hashes.dll
+            platform: windows
 
     steps:
       - name: Checkout repository
@@ -33,12 +33,20 @@ jobs:
       - name: Run Cargo Build with Blake3 Optimizations
         run: cargo build --release --features "loadable_extension blake3"
 
+      # 新增防呆：在雲端列出編譯出來的實際檔案，方便排查
+      - name: List build artifacts (Debug)
+        if: matrix.os != 'windows-latest'
+        run: ls -R target/release/
+        
+      - name: List build artifacts Windows (Debug)
+        if: matrix.os == 'windows-latest'
+        run: dir target\release\
+
+      # 優化後的上傳：使用萬用字元 (*)，不管副檔名或前綴，只要在 release 目錄下就打包
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sqlite-hashes-${{ matrix.os }}
+          name: sqlite-hashes-${{ matrix.platform }}
           path: |
-            target/release/libsqlite_hashes.so
-            target/release/libsqlite_hashes.dylib
-            target/release/sqlite_hashes.dll
-          if-no-files-found: ignore
+            target/release/*sqlite_hashes*
+          if-no-files-found: error # 如果找不到檔案，直接報錯，不默默跳過
