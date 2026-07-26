@@ -11,45 +11,36 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            output_name: libsqlite_hashes.so
           - os: macos-latest
             platform: macos
+            output_name: libsqlite_hashes.dylib
           - os: windows-latest
             platform: windows
-            
+            output_name: sqlite_hashes.dll
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      
-      # Linux 環境獨有依賴
-      - name: Install SQLite Dev Libraries (Linux Only)
-        if: matrix.os == 'ubuntu-latest'
+
+      # 1. 既然標準編譯只給 rlib，那我們先用 cargo 幫我們把所有底層依賴套件（如 blake3、digest）下載並編譯好
+      - name: Fetch and Prepare Dependencies
+        run: cargo check --release --features "loadable_extension blake3"
+
+      # 2. 🔥【核心大絕招】：繞過 Cargo 的限制，直接用 rustc 將主程式 src/lib.rs 編譯成我們要的平台動態庫
+      - name: Force Compile to Dynamic Library
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsqlite3-dev
+          rustc --crate-name sqlite_hashes src/lib.rs --crate-type=cdylib --release --cfg 'feature="loadable_extension"' --cfg 'feature="blake3"' -L target/release/deps -o ${{ matrix.output_name }}
 
-      # 🚀【唯一重大關鍵修正】：
-      # 根據專案結構，我們不需要去修改 Cargo.toml！
-      # 而是透過 `--example` 或 `--package` 形式，直接指定專案內的 `sqlite_hashes` 動態庫目標，
-      # 並在 Windows 下精準開啟 C 原始碼內嵌 (rusqlite/bundled)，這樣 Windows 就能直接組裝出 DLL。
-      - name: Windows Compilation (Target Dynamic DLL)
-        if: matrix.os == 'windows-latest'
-        run: cargo build --release --lib --features "loadable_extension blake3 rusqlite/bundled"
+      # 3. 檢查檔案是否存在（Debug 用）
+      - name: Check output file
+        run: |
+          ls -la ${{ matrix.output_name }} || dir ${{ matrix.output_name }}
 
-      # Linux & macOS 保持原本成功的編譯方式
-      - name: Linux / macOS Compilation
-        if: matrix.os != 'windows-latest'
-        run: cargo build --release --lib --features "loadable_extension blake3"
-
-      # 🔥【上傳路徑優化】：
-      # 不管它藏在 target/release 的哪個子目錄（Windows 常會藏在 /deps 或根目錄下），
-      # 全面遞迴掃描，只要副檔名是 .dll、.so、.dylib 全部打包，絕對不漏抓！
+      # 4. 檔案就在根目錄，百分之百不可能抓不到
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
-          path: |
-            target/release/**/*.dll
-            target/release/**/*.so
-            target/release/**/*.dylib
-            target/release/deps/*.dll
+          path: ${{ matrix.output_name }}
           if-no-files-found: error
