@@ -1,7 +1,7 @@
 name: Build SQLite Hashes Extension
 
 on:
-  workflow_dispatch: # 讓您可以手動點擊按鈕來觸發編譯
+  workflow_dispatch: # 手動點擊觸發
 
 jobs:
   build:
@@ -30,23 +30,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
+      # 🔥 關鍵修正：強迫 Windows 將輸出型態指定為 cdylib，這樣才會產出 .dll
+      - name: Force Dynamic Library (cdylib) Configuration
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            # 使用 sed 在 [lib] 下方插入 crate-type = ["cdylib"]
+            sed -i '/\[lib\]/a crate-type = ["cdylib"]' Cargo.toml
+            echo "Cargo.toml has been modified for Windows DLL generation."
+          fi
+
       - name: Run Cargo Build with Blake3 Optimizations
         run: cargo build --release --features "loadable_extension blake3"
 
-      # 新增防呆：在雲端列出編譯出來的實際檔案，方便排查
-      - name: List build artifacts (Debug)
-        if: matrix.os != 'windows-latest'
-        run: ls -R target/release/
-        
-      - name: List build artifacts Windows (Debug)
-        if: matrix.os == 'windows-latest'
-        run: dir target\release\
-
-      # 優化後的上傳：使用萬用字元 (*)，不管副檔名或前綴，只要在 release 目錄下就打包
+      # 上傳編譯產物
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
           path: |
-            target/release/*sqlite_hashes*
-          if-no-files-found: error # 如果找不到檔案，直接報錯，不默默跳過
+            target/release/*.so
+            target/release/*.dylib
+            target/release/*.dll
+          if-no-files-found: error
