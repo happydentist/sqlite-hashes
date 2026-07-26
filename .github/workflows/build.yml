@@ -11,20 +11,14 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            features: "loadable_extension blake3"
+            features: "loadable_extension,blake3"
           - os: macos-latest
             platform: macos
-            features: "loadable_extension blake3"
+            features: "loadable_extension,blake3"
           - os: windows-latest
             platform: windows
-            # Windows 環境必須加上 rusqlite/bundled 進行本地 C 庫混合編譯
-            features: "loadable_extension blake3 rusqlite/bundled"
-            
-    defaults:
-      run:
-        # 🔥 最關鍵的核心：強制所有平台（包含 Windows）在編譯時統一使用 bash 核心
-        # 這樣就能徹底擺脫 Windows PowerShell 對於引號、多 Feature 與環境變數的解析地獄！
-        shell: bash
+            # Windows 環境必須加上 rusqlite/bundled 讓它現場編譯 C 庫
+            features: "loadable_extension,blake3,rusqlite/bundled"
 
     steps:
       - uses: actions/checkout@v4
@@ -37,13 +31,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 跨平台完全一致編譯
-      # 透過引進 --crate-type=cdylib 強制 Rust 拋棄 rlib，在 Windows 上也必定吐出動態庫！
+      # 2. 跨平台通用編譯
+      # 💡 核心修正：
+      #   a. 加上 `--lib` 參數，強制 Cargo 繞過 dev-dependencies（徹底消滅 cargo-husky 導致的 101 崩潰）
+      #   b. 移除命令列最後方的 `-- --crate-type` 覆寫，因為專案 Cargo.toml 本身就已經內建配置好了 cdylib 特性！
       - name: Run Cargo Build
-        run: |
-          cargo rustc --release --features "${{ matrix.features }}" -- --crate-type=cdylib
+        run: cargo build --release --lib --features "${{ matrix.features }}"
 
-      # 3. 萬用字元防呆上傳機制
+      # 3. 防呆上傳機制
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
