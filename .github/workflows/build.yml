@@ -11,13 +11,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            artifact_name: libsqlite_hashes.so
           - os: macos-latest
             platform: macos
-            artifact_name: libsqlite_hashes.dylib
           - os: windows-latest
             platform: windows
-            artifact_name: sqlite_hashes.dll
             
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +28,6 @@ jobs:
           sudo apt-get install -y libsqlite3-dev
 
       # 2. 跨平台分流編譯
-      # 回歸標準的 cargo build，讓專案讀取自身的 Cargo.toml 設定
       - name: Compile on Unix-like Systems
         if: matrix.os != 'windows-latest'
         run: cargo build --release --features "loadable_extension blake3"
@@ -40,11 +36,22 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: cargo build --release --features "loadable_extension blake3 rusqlite/bundled"
 
-      # 3. 精確上傳產物
-      # 標準編譯後，產物必然會以正確的下底線「_」命名，並乖乖出現在 target/release/ 根目錄下！
+      # 3. 列出產物檔案 (Debug 專用，可在 Log 中直接看到實際產出的檔名)
+      - name: List Release Files
+        run: |
+          echo "=== Content of target/release/ ==="
+          ls -la target/release/ || dir target\release\
+
+      # 4. 保證防呆的上傳機制
+      # 我們利用多行 path，並搭配驚嘆號「!」來精確排除 deps 目錄。
+      # 這樣無論檔名是 sqlite_hashes 還是 sqlite-hashes，都能100%成功上傳！
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
-          path: target/release/${{ matrix.artifact_name }}
+          path: |
+            target/release/*.dll
+            target/release/*.so
+            target/release/*.dylib
+            !target/release/deps/**
           if-no-files-found: error
