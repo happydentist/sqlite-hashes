@@ -11,40 +11,35 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            features: "loadable_extension blake3"
           - os: macos-latest
             platform: macos
-            features: "loadable_extension blake3"
           - os: windows-latest
             platform: windows
-            # Windows 必須帶有隨附編譯，以防主機缺乏 SQLite 執行環境
-            features: "loadable_extension blake3 rusqlite/bundled"
-            
-    defaults:
-      run:
-        # 強制全平台在 GitHub Actions 內部統一使用 Git Bash 核心
-        # 這樣才能確保 Windows 也能 100% 讀懂並執行 Linux 級別的底層編譯覆寫參數
-        shell: bash
 
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       
-      # 1. 解決 Linux 環境依賴
+      # 1. 安裝 Rust 環境
+      - uses: dtolnay/rust-toolchain@stable
+
+      # 2. 安裝官方推薦的自動化編譯工具 `just`
+      - name: Install Just Runner
+        uses: taiki-e/install-action@just
+
+      # 3. 解決 Linux 環境依賴
       - name: Install SQLite Dev Libraries (Linux Only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 跨平台強制動態庫編譯（最終解法）
-      # 💡 拋棄 cargo build，直接調用 cargo rustc，並利用結尾的 `-- --crate-type=cdylib`
-      # 這是 Rust 權限最高的硬核指令，能直接越過專案內 build.rs 的檢查，強制 Windows 產出 .dll 檔案！
-      - name: Run Cargo Rustc Build
-        run: |
-          cargo rustc --release --features "${{ matrix.matrix.features || matrix.features }}" -- --crate-type=cdylib
+      # 4. 透過專案內建的 `justfile` 進行全自動、無干擾的編譯
+      # 這樣一來會完全走專案作者預設的安全路徑，絕不會觸發 101 與 1 錯誤
+      - name: Build Loadable Extension via Just
+        run: just build
 
-      # 3. 檢查與上傳產物
+      # 5. 防呆搜刮上傳機制
+      # 官方 just 腳本會在 target/release/ 產出正確的動態連結庫
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
