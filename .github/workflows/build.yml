@@ -22,7 +22,7 @@ jobs:
       # 1. 安裝 Rust 環境
       - uses: dtolnay/rust-toolchain@stable
 
-      # 2. 安裝官方推薦的自動化編譯工具 `just`
+      # 2. 安裝官方自動化編譯工具 `just`
       - name: Install Just Runner
         uses: taiki-e/install-action@just
 
@@ -33,21 +33,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 4. 透過專案內建的 `justfile` 進行全自動、無干擾的編譯
-      # 這樣一來會完全走專案作者預設的安全路徑，絕不會觸發 101 與 1 錯誤
+      # 4. 透過專案官方的 `justfile` 進行標準安全編譯
       - name: Build Loadable Extension via Just
         run: just build
 
-      # 5. 防呆搜刮上傳機制
-      # 官方 just 腳本會在 target/release/ 產出正確的動態連結庫
+      # 5. 🛠️ 產物位置除錯（可點開 Actions 日誌直接看檔案究竟被 just 搬去哪）
+      - name: Debug Find Ext Files
+        shell: bash
+        run: |
+          echo "=== Searching for compiled extensions in repository ==="
+          find . -name "*.so" -o -name "*.dylib" -o -name "*.dll" | grep -v "target/release/deps" || echo "No files found via find"
+
+      # 6. ✨ 終極盲搜上傳機制（破除所有路徑謎題）
+      # 我們利用 **/* 進行全專案目錄遞迴搜尋，並排除 target 中雜亂的中介檔。
+      # 無論 just build 把產物搬到根目錄、dist/ 還是 artifacts/，都保證能被精確打包！
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sqlite-hashes-${{ matrix.platform }}
           path: |
-            target/release/*.dll
-            target/release/*.so
-            target/release/*.dylib
-            target/release/libsqlite_hashes.*
-            target/release/sqlite_hashes.*
+            **/*.dll
+            **/*.so
+            **/*.dylib
+            !target/**/deps/**
+            !target/**/incremental/**
+            !target/**/build/**
           if-no-files-found: error
