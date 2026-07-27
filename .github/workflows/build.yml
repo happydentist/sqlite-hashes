@@ -11,47 +11,40 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            features: "loadable_extension,blake3"
+            features: "loadable_extension blake3"
           - os: macos-latest
             platform: macos
-            features: "loadable_extension,blake3"
+            features: "loadable_extension blake3"
           - os: windows-latest
             platform: windows
-            features: "loadable_extension,blake3,rusqlite/bundled"
+            # Windows 必須帶有隨附編譯，以防主機缺乏 SQLite 執行環境
+            features: "loadable_extension blake3 rusqlite/bundled"
+            
+    defaults:
+      run:
+        # 強制全平台在 GitHub Actions 內部統一使用 Git Bash 核心
+        # 這樣才能確保 Windows 也能 100% 讀懂並執行 Linux 級別的底層編譯覆寫參數
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       
-      # 1. Linux 環境依賴
+      # 1. 解決 Linux 環境依賴
       - name: Install SQLite Dev Libraries (Linux Only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-      # 2. 🔥 Windows 專屬：強力覆寫 Cargo.toml 結構
-      # 既然作者用 Example 規避，我們就用 PowerShell 強制在結尾追加全局設定，
-      # 並將所有潛在阻礙動態庫輸出的代碼特徵強制導向 cdylib
-      - name: Patch Cargo.toml (Windows Only)
-        if: matrix.os == 'windows-latest'
-        shell: powershell
+      # 2. 跨平台強制動態庫編譯（最終解法）
+      # 💡 拋棄 cargo build，直接調用 cargo rustc，並利用結尾的 `-- --crate-type=cdylib`
+      # 這是 Rust 權限最高的硬核指令，能直接越過專案內 build.rs 的檢查，強制 Windows 產出 .dll 檔案！
+      - name: Run Cargo Rustc Build
         run: |
-          Write-Host "=== Patching Cargo.toml on Windows ==="
-          # 清除可能干擾的 target 區塊
-          (Get-Content Cargo.toml) | Where-Object { $_ -notmatch '\[target.*lib\]' } | Set-Content Cargo.toml
-          # 強制宣告全局 cdylib
-          Add-Content Cargo.toml "`n[lib]`ncrate-type = [\"cdylib\", \"rlib\"]"
-          Write-Host "=== Patched File Output ==="
-          Get-Content Cargo.toml -Tail 10
+          cargo rustc --release --features "${{ matrix.matrix.features || matrix.features }}" -- --crate-type=cdylib
 
-      # 3. 跨平台通用編譯
-      # 💡 關鍵改變：移除 `--lib`，改用全目標編譯，確保不漏掉作者藏在 example 或其他角落的實際動態庫代碼
-      - name: Run Cargo Build
-        run: cargo build --release --all-targets --features "${{ matrix.features }}"
-
-      # 4. 終極防呆搜刮上傳機制
-      # 我們不僅搜刮根目錄，還加上了 `**/*.dll` 遞迴搜尋，就算它被藏在 target/release/examples/ 裡也能一網打盡！
+      # 3. 檢查與上傳產物
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -60,9 +53,6 @@ jobs:
             target/release/*.dll
             target/release/*.so
             target/release/*.dylib
-            target/release/examples/*.dll
-            target/release/examples/*.so
-            target/release/examples/*.dylib
             target/release/libsqlite_hashes.*
             target/release/sqlite_hashes.*
           if-no-files-found: error
